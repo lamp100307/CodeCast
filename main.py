@@ -1,14 +1,277 @@
 import sys
 import os
+import json
+from pathlib import Path
 from PySide6 import QtWidgets, QtCore, QtGui
 
-# ------------------------------- Base highlighter -------------------------------
+# ------------------------------- Пути к данным приложения -------------------------------
+APP_DIR = Path.home() / ".codecast"
+THEMES_DIR = APP_DIR / "themes"
+EXTENSIONS_DIR = APP_DIR / "extensions"
 
-class BaseHighlighter(QtGui.QSyntaxHighlighter):
-    """Base class for syntax highlighting"""
-    def __init__(self, parent=None):
+# Базовая тема "Dark" (расширенная, с UI цветами)
+BASE_THEMES = {
+    "dark.json": {
+        "name": "Dark",
+        "colors": {
+            "background": "#1e1e1e",
+            "foreground": "#d4d4d4",
+            "selection": "#264f78",
+            "lineHighlight": "#2a2a2a",
+            "lineNumbers": "#858585",
+            "fold": "#1e1e1e",
+            "keyword": "#569CD6",
+            "string": "#CE9178",
+            "comment": "#6A9955",
+            "function": "#DCDCAA",
+            "decorator": "#D7BA7D",
+            "number": "#B5CEA8",
+            "preprocessor": "#D7BA7D"
+        },
+        "ui": {
+            "window": "#2d2d2d",
+            "windowText": "#ffffff",
+            "base": "#1e1e1e",
+            "alternateBase": "#2d2d2d",
+            "text": "#ffffff",
+            "button": "#3c3c3c",
+            "buttonText": "#ffffff",
+            "brightText": "#ff0000",
+            "link": "#2a82da",
+            "highlight": "#2a82da",
+            "highlightedText": "#000000",
+            "toolTipBase": "#ffffff",
+            "toolTipText": "#000000"
+        }
+    },
+    "light.json": {
+        "name": "Light",
+        "colors": {
+            "background": "#ffffff",
+            "foreground": "#000000",
+            "selection": "#add6ff",
+            "lineHighlight": "#f0f0f0",
+            "lineNumbers": "#237893",
+            "fold": "#ffffff",
+            "keyword": "#0000ff",
+            "string": "#a31515",
+            "comment": "#008000",
+            "function": "#795e26",
+            "decorator": "#af00db",
+            "number": "#098658",
+            "preprocessor": "#af00db"
+        },
+        "ui": {
+            "window": "#f0f0f0",
+            "windowText": "#000000",
+            "base": "#ffffff",
+            "alternateBase": "#f0f0f0",
+            "text": "#000000",
+            "button": "#e0e0e0",
+            "buttonText": "#000000",
+            "brightText": "#ff0000",
+            "link": "#0000ff",
+            "highlight": "#3399ff",
+            "highlightedText": "#ffffff",
+            "toolTipBase": "#ffffdc",
+            "toolTipText": "#000000"
+        }
+    }
+}
+
+# Базовые расширения (синтаксис)
+BASE_EXTENSIONS = {
+    "python": {
+        "fileExtension": ".py",
+        "displayName": "Python",
+        "rules": [
+            {"ruleName": "keyword", "regex": r"\b(?:and|assert|break|class|continue|def|del|elif|else|except|exec|finally|for|from|global|if|import|in|is|lambda|not|or|pass|print|raise|return|try|while|with|yield|None|True|False|as|async|await)\b"},
+            {"ruleName": "string", "regex": r'"[^"\\]*(\\.[^"\\]*)*"'},
+            {"ruleName": "string", "regex": r"'[^'\\]*(\\.[^'\\]*)*'"},
+            {"ruleName": "comment", "regex": r"#[^\n]*"},
+            {"ruleName": "function", "regex": r"\b[A-Za-z0-9_]+(?=\()"},
+            {"ruleName": "decorator", "regex": r"^\s*@[A-Za-z_][A-Za-z0-9_]*"},
+            {"ruleName": "number", "regex": r"\b[0-9]+\b"}
+        ]
+    },
+    "c_cpp": {
+        "fileExtension": [".c", ".cpp", ".h", ".hpp", ".cc", ".cxx"],
+        "displayName": "C/C++",
+        "rules": [
+            {"ruleName": "keyword", "regex": r"\b(?:auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|int|long|register|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while|class|private|protected|public|namespace|using|this|new|delete|throw|try|catch|virtual|override|final|friend|operator|template|typename|explicit|static_cast|dynamic_cast|const_cast|reinterpret_cast|bool|true|false)\b"},
+            {"ruleName": "string", "regex": r'"[^"\\]*(\\.[^"\\]*)*"'},
+            {"ruleName": "string", "regex": r"'[^'\\]*(\\.[^'\\]*)*'"},
+            {"ruleName": "comment", "regex": r"//[^\n]*"},
+            {"ruleName": "comment", "regex": r"/\*.*?\*/"},
+            {"ruleName": "preprocessor", "regex": r"^\s*#\s*[a-zA-Z]+"},
+            {"ruleName": "number", "regex": r"\b[0-9]+\b"},
+            {"ruleName": "number", "regex": r"\b0x[0-9a-fA-F]+\b"}
+        ]
+    },
+    "csharp": {
+        "fileExtension": ".cs",
+        "displayName": "C#",
+        "rules": [
+            {"ruleName": "keyword", "regex": r"\b(?:abstract|as|base|bool|break|byte|case|catch|char|checked|class|const|continue|decimal|default|delegate|do|double|else|enum|event|explicit|extern|false|finally|fixed|float|for|foreach|goto|if|implicit|in|int|interface|internal|is|lock|long|namespace|new|null|object|operator|out|override|params|private|protected|public|readonly|ref|return|sbyte|sealed|short|sizeof|stackalloc|static|string|struct|switch|this|throw|true|try|typeof|uint|ulong|unchecked|unsafe|ushort|using|virtual|void|volatile|while|async|await|var|dynamic|get|set|add|remove|partial|where|yield)\b"},
+            {"ruleName": "string", "regex": r'@"[^"]*"'},
+            {"ruleName": "string", "regex": r'"[^"\\]*(\\.[^"\\]*)*"'},
+            {"ruleName": "string", "regex": r"'[^'\\]*(\\.[^'\\]*)*'"},
+            {"ruleName": "comment", "regex": r"//[^\n]*"},
+            {"ruleName": "comment", "regex": r"/\*.*?\*/"},
+            {"ruleName": "comment", "regex": r"///[^\n]*"},
+            {"ruleName": "number", "regex": r"\b[0-9]+\b"}
+        ]
+    }
+}
+
+# ------------------------------- Менеджер тем -------------------------------
+class ThemeManager:
+    def __init__(self):
+        self.themes = {}
+        self.current_theme = None
+        self.load_themes()
+
+    def load_themes(self):
+        THEMES_DIR.mkdir(parents=True, exist_ok=True)
+        # Создаём базовые темы, если их нет
+        for name, data in BASE_THEMES.items():
+            theme_path = THEMES_DIR / name
+            if not theme_path.exists():
+                with open(theme_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4)
+        # Загружаем все темы из папки
+        for theme_file in THEMES_DIR.glob("*.json"):
+            try:
+                with open(theme_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    theme_name = data.get("name", theme_file.stem)
+                    self.themes[theme_name] = data
+            except Exception as e:
+                print(f"Error loading theme {theme_file}: {e}")
+        # Устанавливаем тему по умолчанию
+        if "Dark" in self.themes:
+            self.current_theme = self.themes["Dark"]
+        elif self.themes:
+            self.current_theme = list(self.themes.values())[0]
+
+    def get_color(self, key, default="#000000"):
+        if self.current_theme and "colors" in self.current_theme:
+            return self.current_theme["colors"].get(key, default)
+        return default
+
+    def get_ui_color(self, key, default="#000000"):
+        if self.current_theme and "ui" in self.current_theme:
+            return self.current_theme["ui"].get(key, default)
+        return default
+
+    def set_theme(self, theme_name):
+        if theme_name in self.themes:
+            self.current_theme = self.themes[theme_name]
+            return True
+        return False
+
+    def get_theme_names(self):
+        return list(self.themes.keys())
+
+    def apply_theme_to_app(self, app):
+        """Применяет UI цвета темы к приложению через палитру"""
+        palette = QtGui.QPalette()
+        palette.setColor(QtGui.QPalette.Window, QtGui.QColor(self.get_ui_color("window", "#2d2d2d")))
+        palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor(self.get_ui_color("windowText", "#ffffff")))
+        palette.setColor(QtGui.QPalette.Base, QtGui.QColor(self.get_ui_color("base", "#1e1e1e")))
+        palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(self.get_ui_color("alternateBase", "#2d2d2d")))
+        palette.setColor(QtGui.QPalette.Text, QtGui.QColor(self.get_ui_color("text", "#ffffff")))
+        palette.setColor(QtGui.QPalette.Button, QtGui.QColor(self.get_ui_color("button", "#3c3c3c")))
+        palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor(self.get_ui_color("buttonText", "#ffffff")))
+        palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor(self.get_ui_color("brightText", "#ff0000")))
+        palette.setColor(QtGui.QPalette.Link, QtGui.QColor(self.get_ui_color("link", "#2a82da")))
+        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(self.get_ui_color("highlight", "#2a82da")))
+        palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor(self.get_ui_color("highlightedText", "#000000")))
+        palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor(self.get_ui_color("toolTipBase", "#ffffff")))
+        palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor(self.get_ui_color("toolTipText", "#000000")))
+        app.setPalette(palette)
+
+# ------------------------------- Менеджер расширений -------------------------------
+class ExtensionManager:
+    def __init__(self):
+        self.extensions = {}  # key: file extension (e.g. '.py') -> extension data
+        self.language_names = {}  # extension -> display name
+        self.load_extensions()
+
+    def load_extensions(self):
+        EXTENSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        # Создаём базовые расширения, если их нет
+        for lang, data in BASE_EXTENSIONS.items():
+            ext_dir = EXTENSIONS_DIR / lang
+            if not ext_dir.exists():
+                ext_dir.mkdir()
+                # project.json
+                project_data = {
+                    "name": f"{data['displayName']} Support",
+                    "version": "0.1.0",
+                    "type": "syntax",
+                    "description": f"Built-in {data['displayName']} syntax",
+                    "developers": ["CodeCast"]
+                }
+                with open(ext_dir / "project.json", 'w', encoding='utf-8') as f:
+                    json.dump(project_data, f, indent=4)
+                # syntaxhighlighter.json
+                syntax_data = {
+                    "fileExtension": data["fileExtension"],
+                    "displayName": data["displayName"],
+                    "rules": data["rules"]
+                }
+                with open(ext_dir / "syntaxhighlighter.json", 'w', encoding='utf-8') as f:
+                    json.dump(syntax_data, f, indent=4)
+
+        # Загружаем все расширения
+        for ext_dir in EXTENSIONS_DIR.iterdir():
+            if ext_dir.is_dir():
+                syntax_file = ext_dir / "syntaxhighlighter.json"
+                if syntax_file.exists():
+                    try:
+                        with open(syntax_file, 'r', encoding='utf-8') as f:
+                            syntax_data = json.load(f)
+                        extensions_list = syntax_data.get("fileExtension", [])
+                        if isinstance(extensions_list, str):
+                            extensions_list = [extensions_list]
+                        for ext in extensions_list:
+                            self.extensions[ext] = syntax_data
+                            self.language_names[ext] = syntax_data.get("displayName", ext)
+                    except Exception as e:
+                        print(f"Error loading extension {ext_dir}: {e}")
+
+    def get_highlighter_for_file(self, file_path, theme_manager):
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in self.extensions:
+            return ExtensionHighlighter(self.extensions[ext], theme_manager, parent=None)
+        return None
+
+# ------------------------------- Подсветка на основе расширения -------------------------------
+class ExtensionHighlighter(QtGui.QSyntaxHighlighter):
+    def __init__(self, syntax_data, theme_manager, parent=None):
         super().__init__(parent)
+        self.syntax_data = syntax_data
+        self.theme_manager = theme_manager
         self.rules = []
+        self.load_rules()
+
+    def load_rules(self):
+        for rule in self.syntax_data.get("rules", []):
+            rule_name = rule.get("ruleName")
+            regex = rule.get("regex")
+            if not regex:
+                continue
+            color = self.theme_manager.get_color(rule_name, "#000000")
+            fmt = QtGui.QTextCharFormat()
+            fmt.setForeground(QtGui.QColor(color))
+            if rule_name == "comment":
+                fmt.setFontItalic(True)
+            elif rule_name == "keyword":
+                fmt.setFontWeight(QtGui.QFont.Weight.Bold)
+            # Добавляем правило
+            pattern = QtCore.QRegularExpression(regex)
+            self.rules.append((pattern, fmt))
 
     def highlightBlock(self, text):
         for pattern, fmt in self.rules:
@@ -17,159 +280,7 @@ class BaseHighlighter(QtGui.QSyntaxHighlighter):
                 match = matches.next()
                 self.setFormat(match.capturedStart(), match.capturedLength(), fmt)
 
-# ------------------------------- Python highlighter -------------------------------
-
-class PythonHighlighter(BaseHighlighter):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        # Keywords
-        keyword_format = QtGui.QTextCharFormat()
-        keyword_format.setForeground(QtGui.QColor("#569CD6"))
-        keyword_format.setFontWeight(QtGui.QFont.Weight.Bold)
-
-        keywords = [
-            'and', 'assert', 'break', 'class', 'continue', 'def',
-            'del', 'elif', 'else', 'except', 'exec', 'finally',
-            'for', 'from', 'global', 'if', 'import', 'in',
-            'is', 'lambda', 'not', 'or', 'pass', 'print',
-            'raise', 'return', 'try', 'while', 'with', 'yield',
-            'None', 'True', 'False', 'as', 'async', 'await'
-        ]
-
-        for word in keywords:
-            pattern = QtCore.QRegularExpression(r'\b' + word + r'\b')
-            self.rules.append((pattern, keyword_format))
-
-        # Strings
-        string_format = QtGui.QTextCharFormat()
-        string_format.setForeground(QtGui.QColor("#CE9178"))
-        self.rules.append((QtCore.QRegularExpression(r'"[^"\\]*(\\.[^"\\]*)*"'), string_format))
-        self.rules.append((QtCore.QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), string_format))
-
-        # Comments
-        comment_format = QtGui.QTextCharFormat()
-        comment_format.setForeground(QtGui.QColor("#6A9955"))
-        comment_format.setFontItalic(True)
-        self.rules.append((QtCore.QRegularExpression(r'#[^\n]*'), comment_format))
-
-        # Functions
-        function_format = QtGui.QTextCharFormat()
-        function_format.setForeground(QtGui.QColor("#DCDCAA"))
-        self.rules.append((QtCore.QRegularExpression(r'\b[A-Za-z0-9_]+(?=\()'), function_format))
-
-        # Decorators
-        decorator_format = QtGui.QTextCharFormat()
-        decorator_format.setForeground(QtGui.QColor("#D7BA7D"))
-        self.rules.append((QtCore.QRegularExpression(r'^\s*@[A-Za-z_][A-Za-z0-9_]*'), decorator_format))
-
-        # Numbers
-        number_format = QtGui.QTextCharFormat()
-        number_format.setForeground(QtGui.QColor("#B5CEA8"))
-        self.rules.append((QtCore.QRegularExpression(r'\b[0-9]+\b'), number_format))
-
-# ------------------------------- C/C++ highlighter -------------------------------
-
-class CHighlighter(BaseHighlighter):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        # Keywords
-        keyword_format = QtGui.QTextCharFormat()
-        keyword_format.setForeground(QtGui.QColor("#569CD6"))
-        keyword_format.setFontWeight(QtGui.QFont.Weight.Bold)
-
-        keywords = [
-            'auto', 'break', 'case', 'char', 'const', 'continue', 'default', 'do',
-            'double', 'else', 'enum', 'extern', 'float', 'for', 'goto', 'if',
-            'int', 'long', 'register', 'return', 'short', 'signed', 'sizeof', 'static',
-            'struct', 'switch', 'typedef', 'union', 'unsigned', 'void', 'volatile', 'while',
-            'class', 'private', 'protected', 'public', 'namespace', 'using', 'this',
-            'new', 'delete', 'throw', 'try', 'catch', 'virtual', 'override', 'final',
-            'friend', 'operator', 'template', 'typename', 'explicit', 'static_cast',
-            'dynamic_cast', 'const_cast', 'reinterpret_cast', 'bool', 'true', 'false'
-        ]
-
-        for word in keywords:
-            pattern = QtCore.QRegularExpression(r'\b' + word + r'\b')
-            self.rules.append((pattern, keyword_format))
-
-        # Strings
-        string_format = QtGui.QTextCharFormat()
-        string_format.setForeground(QtGui.QColor("#CE9178"))
-        self.rules.append((QtCore.QRegularExpression(r'"[^"\\]*(\\.[^"\\]*)*"'), string_format))
-        self.rules.append((QtCore.QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), string_format))
-
-        # Comments
-        comment_format = QtGui.QTextCharFormat()
-        comment_format.setForeground(QtGui.QColor("#6A9955"))
-        comment_format.setFontItalic(True)
-        self.rules.append((QtCore.QRegularExpression(r'//[^\n]*'), comment_format))
-        self.rules.append((QtCore.QRegularExpression(r'/\*.*?\*/'), comment_format))
-
-        # Preprocessor
-        preprocessor_format = QtGui.QTextCharFormat()
-        preprocessor_format.setForeground(QtGui.QColor("#D7BA7D"))
-        self.rules.append((QtCore.QRegularExpression(r'^\s*#\s*[a-zA-Z]+'), preprocessor_format))
-
-        # Numbers
-        number_format = QtGui.QTextCharFormat()
-        number_format.setForeground(QtGui.QColor("#B5CEA8"))
-        self.rules.append((QtCore.QRegularExpression(r'\b[0-9]+\b'), number_format))
-        self.rules.append((QtCore.QRegularExpression(r'\b0x[0-9a-fA-F]+\b'), number_format))
-
-# ------------------------------- C# highlighter -------------------------------
-
-class CSharpHighlighter(BaseHighlighter):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        keyword_format = QtGui.QTextCharFormat()
-        keyword_format.setForeground(QtGui.QColor("#569CD6"))
-        keyword_format.setFontWeight(QtGui.QFont.Weight.Bold)
-
-        keywords = [
-            'abstract', 'as', 'base', 'bool', 'break', 'byte', 'case', 'catch',
-            'char', 'checked', 'class', 'const', 'continue', 'decimal', 'default',
-            'delegate', 'do', 'double', 'else', 'enum', 'event', 'explicit',
-            'extern', 'false', 'finally', 'fixed', 'float', 'for', 'foreach',
-            'goto', 'if', 'implicit', 'in', 'int', 'interface', 'internal', 'is',
-            'lock', 'long', 'namespace', 'new', 'null', 'object', 'operator',
-            'out', 'override', 'params', 'private', 'protected', 'public',
-            'readonly', 'ref', 'return', 'sbyte', 'sealed', 'short', 'sizeof',
-            'stackalloc', 'static', 'string', 'struct', 'switch', 'this', 'throw',
-            'true', 'try', 'typeof', 'uint', 'ulong', 'unchecked', 'unsafe',
-            'ushort', 'using', 'virtual', 'void', 'volatile', 'while', 'async',
-            'await', 'var', 'dynamic', 'get', 'set', 'add', 'remove', 'partial',
-            'where', 'yield'
-        ]
-
-        for word in keywords:
-            pattern = QtCore.QRegularExpression(r'\b' + word + r'\b')
-            self.rules.append((pattern, keyword_format))
-
-        # Strings
-        string_format = QtGui.QTextCharFormat()
-        string_format.setForeground(QtGui.QColor("#CE9178"))
-        self.rules.append((QtCore.QRegularExpression(r'@"[^"]*"'), string_format))
-        self.rules.append((QtCore.QRegularExpression(r'"[^"\\]*(\\.[^"\\]*)*"'), string_format))
-        self.rules.append((QtCore.QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), string_format))
-
-        # Comments
-        comment_format = QtGui.QTextCharFormat()
-        comment_format.setForeground(QtGui.QColor("#6A9955"))
-        comment_format.setFontItalic(True)
-        self.rules.append((QtCore.QRegularExpression(r'//[^\n]*'), comment_format))
-        self.rules.append((QtCore.QRegularExpression(r'/\*.*?\*/'), comment_format))
-        self.rules.append((QtCore.QRegularExpression(r'///[^\n]*'), comment_format))  # XML comments
-
-        # Numbers
-        number_format = QtGui.QTextCharFormat()
-        number_format.setForeground(QtGui.QColor("#B5CEA8"))
-        self.rules.append((QtCore.QRegularExpression(r'\b[0-9]+\b'), number_format))
-
-# ------------------------------- Line number widget -------------------------------
-
+# ------------------------------- Виджет для номеров строк -------------------------------
 class LineNumberArea(QtWidgets.QWidget):
     def __init__(self, editor):
         super().__init__(editor)
@@ -181,8 +292,7 @@ class LineNumberArea(QtWidgets.QWidget):
     def paintEvent(self, event):
         self.editor.line_number_area_paint_event(event)
 
-# ------------------------------- Code folding widget -------------------------------
-
+# ------------------------------- Виджет для сворачивания блоков -------------------------------
 class CodeFoldingArea(QtWidgets.QWidget):
     def __init__(self, editor):
         super().__init__(editor)
@@ -193,21 +303,19 @@ class CodeFoldingArea(QtWidgets.QWidget):
 
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
-        painter.fillRect(event.rect(), QtGui.QColor("#252526"))
+        painter.fillRect(event.rect(), QtGui.QColor(self.editor.theme_manager.get_color("fold", "#252526")))
 
         block = self.editor.firstVisibleBlock()
         top = self.editor.blockBoundingGeometry(block).translated(self.editor.contentOffset()).top()
 
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and self.editor.is_foldable(block):
-                painter.setPen(QtGui.QColor("#858585"))
+                painter.setPen(QtGui.QColor(self.editor.theme_manager.get_color("lineNumbers", "#858585")))
                 rect = QtCore.QRect(2, int(top) + 2, 16, 16)
-
                 if self.editor.is_folded(block):
                     painter.drawText(rect, QtCore.Qt.AlignCenter, "+")
                 else:
                     painter.drawText(rect, QtCore.Qt.AlignCenter, "-")
-
             block = block.next()
             top = self.editor.blockBoundingGeometry(block).translated(self.editor.contentOffset()).top()
 
@@ -216,30 +324,17 @@ class CodeFoldingArea(QtWidgets.QWidget):
         if block.isValid() and self.editor.is_foldable(block):
             self.editor.toggle_fold(block)
 
-# ------------------------------- Main editor widget -------------------------------
-
+# ------------------------------- Основной редактор -------------------------------
 class CodeEditor(QtWidgets.QPlainTextEdit):
-    def __init__(self, parent=None):
+    def __init__(self, theme_manager, extension_manager, parent=None):
         super().__init__(parent)
+        self.theme_manager = theme_manager
+        self.extension_manager = extension_manager
 
         # Font
         self.setFont(QtGui.QFont("Consolas", 12))
         self.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
         self.setTabStopDistance(QtGui.QFontMetricsF(self.font()).horizontalAdvance(' ') * 4)
-
-        # Style
-        self.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                border: none;
-                selection-background-color: #264f78;
-            }
-        """)
-
-        # Highlighting (default Python)
-        self.highlighter = PythonHighlighter(self.document())
-        self.current_language = 'py'
 
         # Folding
         self.folded_blocks = set()
@@ -264,6 +359,29 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.is_modified = False
         self.document().modificationChanged.connect(self.set_modified)
         self.file_path = None
+        self.highlighter = None
+
+        # Apply initial theme
+        self.apply_theme()
+
+    def apply_theme(self):
+        # Обновляем цвета в соответствии с текущей темой
+        bg = self.theme_manager.get_color("background", "#1e1e1e")
+        fg = self.theme_manager.get_color("foreground", "#d4d4d4")
+        sel = self.theme_manager.get_color("selection", "#264f78")
+        self.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {bg};
+                color: {fg};
+                border: none;
+                selection-background-color: {sel};
+            }}
+        """)
+        # Пересоздаём highlighter с новыми цветами
+        if self.file_path:
+            self.set_language_from_file(self.file_path)
+        else:
+            self.highlighter = None
 
     def set_modified(self, modified):
         self.is_modified = modified
@@ -296,32 +414,22 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def set_language_from_file(self, file_path):
         ext = os.path.splitext(file_path)[1].lower()
-        if ext == '.py':
-            if self.current_language != 'py':
-                self.highlighter = PythonHighlighter(self.document())
-                self.current_language = 'py'
-        elif ext in ('.c', '.cpp', '.h', '.hpp', '.cc', '.cxx'):
-            if self.current_language != 'c':
-                self.highlighter = CHighlighter(self.document())
-                self.current_language = 'c'
-        elif ext == '.cs':
-            if self.current_language != 'cs':
-                self.highlighter = CSharpHighlighter(self.document())
-                self.current_language = 'cs'
+        highlighter_class = self.extension_manager.get_highlighter_for_file(file_path, self.theme_manager)
+        if highlighter_class:
+            self.highlighter = highlighter_class
+            self.highlighter.setDocument(self.document())
         else:
-            if self.current_language != 'none':
-                self.highlighter = None
-                self.current_language = 'none'
-        if self.highlighter:
-            self.highlighter.rehighlight()
+            self.highlighter = None
 
     def is_foldable(self, block):
         text = block.text().strip()
-        if self.current_language == 'py':
-            return (text.startswith(('def ', 'class ', 'if ', 'for ', 'while ', 'with '))
-                    and text.endswith(':'))
-        elif self.current_language in ('c', 'cs'):
-            return text.endswith('{') or (text.startswith(('#if', '#ifdef', '#ifndef')) and not text.endswith('#'))
+        # Простая эвристика для Python и C-подобных
+        if text.endswith(':') and not text.startswith(('"""', "'''")):
+            return True
+        if text.endswith('{'):
+            return True
+        if text.startswith(('#if', '#ifdef', '#ifndef')):
+            return True
         return False
 
     def is_folded(self, block):
@@ -466,7 +574,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def line_number_area_paint_event(self, event):
         painter = QtGui.QPainter(self.line_number_area)
-        painter.fillRect(event.rect(), QtGui.QColor("#252526"))
+        painter.fillRect(event.rect(), QtGui.QColor(self.theme_manager.get_color("background", "#1e1e1e")))
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
         top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
@@ -474,7 +582,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 number = str(block_number + 1)
-                painter.setPen(QtGui.QColor("#858585"))
+                painter.setPen(QtGui.QColor(self.theme_manager.get_color("lineNumbers", "#858585")))
                 painter.setFont(self.font())
                 painter.drawText(0, int(top), self.line_number_area.width() - 2,
                                  self.fontMetrics().height(), QtCore.Qt.AlignRight, number)
@@ -487,7 +595,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         extra_selections = []
         if not self.isReadOnly():
             selection = QtWidgets.QTextEdit.ExtraSelection()
-            line_color = QtGui.QColor("#2a2a2a")
+            line_color = QtGui.QColor(self.theme_manager.get_color("lineHighlight", "#2a2a2a"))
             selection.format.setBackground(line_color)
             selection.format.setProperty(QtGui.QTextFormat.FullWidthSelection, True)
             selection.cursor = self.textCursor()
@@ -495,8 +603,38 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             extra_selections.append(selection)
         self.setExtraSelections(extra_selections)
 
-# ------------------------------- Find/Replace dialog -------------------------------
+# ------------------------------- Диалог выбора темы -------------------------------
+class ThemeDialog(QtWidgets.QDialog):
+    def __init__(self, theme_manager, parent=None):
+        super().__init__(parent)
+        self.theme_manager = theme_manager
+        self.setWindowTitle("Themes")
+        self.setModal(True)
+        self.setMinimumSize(400, 300)
 
+        layout = QtWidgets.QVBoxLayout(self)
+
+        self.list_widget = QtWidgets.QListWidget()
+        self.list_widget.addItems(self.theme_manager.get_theme_names())
+        # Highlight current theme
+        current_name = self.theme_manager.current_theme.get("name") if self.theme_manager.current_theme else None
+        if current_name:
+            items = self.list_widget.findItems(current_name, QtCore.Qt.MatchExactly)
+            if items:
+                self.list_widget.setCurrentItem(items[0])
+
+        layout.addWidget(self.list_widget)
+
+        button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def get_selected_theme(self):
+        item = self.list_widget.currentItem()
+        return item.text() if item else None
+
+# ------------------------------- Find/Replace dialog -------------------------------
 class FindReplaceDialog(QtWidgets.QDialog):
     def __init__(self, editor, parent=None):
         super().__init__(parent)
@@ -604,10 +742,11 @@ class FindReplaceDialog(QtWidgets.QDialog):
         QtWidgets.QMessageBox.information(self, "Replace", f"Replaced {count} occurrences")
 
 # ------------------------------- Tab widget -------------------------------
-
 class TabWidget(QtWidgets.QTabWidget):
-    def __init__(self, parent=None):
+    def __init__(self, theme_manager, extension_manager, parent=None):
         super().__init__(parent)
+        self.theme_manager = theme_manager
+        self.extension_manager = extension_manager
         self.setTabsClosable(True)
         self.tabCloseRequested.connect(self.close_tab)
 
@@ -619,7 +758,7 @@ class TabWidget(QtWidgets.QTabWidget):
         self.parent = parent
 
     def new_tab(self, file_path=None):
-        editor = CodeEditor()
+        editor = CodeEditor(self.theme_manager, self.extension_manager)
         if file_path and os.path.exists(file_path):
             editor.load_file(file_path)
             tab_name = os.path.basename(file_path)
@@ -658,7 +797,6 @@ class TabWidget(QtWidgets.QTabWidget):
         editor.deleteLater()
 
 # ------------------------------- File tree dock widget -------------------------------
-
 class FileTreeDock(QtWidgets.QDockWidget):
     def __init__(self, parent=None):
         super().__init__("File Tree", parent)
@@ -685,12 +823,10 @@ class FileTreeDock(QtWidgets.QDockWidget):
         self.setWidget(self.tree_view)
 
     def set_root_to_current_dir(self):
-        """Set tree root to current working directory"""
         current_dir = QtCore.QDir.currentPath()
         self.tree_view.setRootIndex(self.model.index(current_dir))
 
     def set_root(self, path):
-        """Set tree root to given path"""
         if os.path.isdir(path):
             self.tree_view.setRootIndex(self.model.index(path))
 
@@ -711,7 +847,6 @@ class FileTreeDock(QtWidgets.QDockWidget):
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
 
 # ------------------------------- Main window -------------------------------
-
 class MainApplication(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -719,8 +854,12 @@ class MainApplication(QtWidgets.QMainWindow):
         self.setWindowTitle("CodeCast Editor")
         self.setGeometry(100, 100, 1200, 800)
 
+        # Initialize managers
+        self.theme_manager = ThemeManager()
+        self.extension_manager = ExtensionManager()
+
         # Tab widget
-        self.tab_widget = TabWidget(self)
+        self.tab_widget = TabWidget(self.theme_manager, self.extension_manager, self)
         self.setCentralWidget(self.tab_widget)
         self.tab_widget.new_tab()
 
@@ -729,7 +868,6 @@ class MainApplication(QtWidgets.QMainWindow):
         # File tree dock
         self.file_tree_dock = FileTreeDock(self)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.file_tree_dock)
-        # Show file tree by default
         self.file_tree_dock.show()
 
         # Menus
@@ -754,6 +892,9 @@ class MainApplication(QtWidgets.QMainWindow):
         self.update_editor_connections()
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
 
+        # Apply initial theme to whole app
+        self.theme_manager.apply_theme_to_app(QtWidgets.QApplication.instance())
+
     def get_current_editor(self):
         return self.tab_widget.currentWidget()
 
@@ -761,7 +902,6 @@ class MainApplication(QtWidgets.QMainWindow):
         editor = self.get_current_editor()
         if editor == self.current_editor:
             return
-        # Отключаем сигналы от предыдущего редактора
         if self.current_editor is not None:
             try:
                 self.current_editor.cursorPositionChanged.disconnect()
@@ -775,7 +915,6 @@ class MainApplication(QtWidgets.QMainWindow):
                 self.current_editor.textChanged.disconnect()
             except (TypeError, RuntimeError):
                 pass
-        # Подключаем сигналы нового редактора
         if editor:
             editor.cursorPositionChanged.connect(self.update_cursor_position)
             editor.blockCountChanged.connect(self.update_line_count)
@@ -939,29 +1078,32 @@ class MainApplication(QtWidgets.QMainWindow):
 
         self.toggle_file_tree_action = QtGui.QAction("File Tree", self)
         self.toggle_file_tree_action.setCheckable(True)
-        self.toggle_file_tree_action.setChecked(True)  # Visible by default
+        self.toggle_file_tree_action.setChecked(True)
         self.toggle_file_tree_action.triggered.connect(self.toggle_file_tree)
         self.toggle_file_tree_action.setShortcut("Ctrl+Shift+F")
         view_menu.addAction(self.toggle_file_tree_action)
+
+        # Themes menu
+        themes_menu = menubar.addMenu("Themes")
+        choose_theme_action = QtGui.QAction("Choose Theme...", self)
+        choose_theme_action.triggered.connect(self.show_theme_dialog)
+        themes_menu.addAction(choose_theme_action)
 
     def new_file(self):
         self.tab_widget.new_tab()
 
     def open_file(self):
         file_paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            self, "Open files", "", "Python (*.py);;C/C++ (*.c *.cpp *.h *.hpp);;C# (*.cs);;All Files (*)")
+            self, "Open files", "", "All Files (*)")
         for file_path in file_paths:
             self.tab_widget.new_tab(file_path)
 
     def open_file_from_path(self, file_path):
-        """Open a file from a path (e.g., from file tree)"""
-        # Optionally check if already opened in a tab
         for i in range(self.tab_widget.count()):
             editor = self.tab_widget.widget(i)
             if editor.file_path == file_path:
                 self.tab_widget.setCurrentIndex(i)
                 return
-        # Otherwise open new tab
         self.tab_widget.new_tab(file_path)
 
     def choose_and_set_root(self):
@@ -983,7 +1125,7 @@ class MainApplication(QtWidgets.QMainWindow):
         if not editor:
             return False
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save file", "", "Python (*.py);;C/C++ (*.c *.cpp *.h);;C# (*.cs);;All Files (*)")
+            self, "Save file", "", "All Files (*)")
         if file_path:
             if not os.path.splitext(file_path)[1]:
                 file_path += '.txt'
@@ -1069,6 +1211,20 @@ class MainApplication(QtWidgets.QMainWindow):
             self.file_tree_dock.hide()
         self.toggle_file_tree_action.setChecked(checked)
 
+    def show_theme_dialog(self):
+        dialog = ThemeDialog(self.theme_manager, self)
+        if dialog.exec() == QtWidgets.QDialog.Accepted:
+            theme_name = dialog.get_selected_theme()
+            if theme_name and self.theme_manager.set_theme(theme_name):
+                # Apply theme to whole app
+                self.theme_manager.apply_theme_to_app(QtWidgets.QApplication.instance())
+                # Apply theme to all editors
+                for i in range(self.tab_widget.count()):
+                    editor = self.tab_widget.widget(i)
+                    editor.apply_theme()
+                # Force repaint of all widgets
+                self.update()
+
     def run_code(self):
         editor = self.get_current_editor()
         if not editor:
@@ -1127,27 +1283,11 @@ class MainApplication(QtWidgets.QMainWindow):
             event.accept()
 
 # ------------------------------- Launch -------------------------------
-
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     app.setStyle('Fusion')
 
-    dark_palette = QtGui.QPalette()
-    dark_palette.setColor(QtGui.QPalette.Window, QtGui.QColor(53, 53, 53))
-    dark_palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
-    dark_palette.setColor(QtGui.QPalette.Base, QtGui.QColor(25, 25, 25))
-    dark_palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(53, 53, 53))
-    dark_palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.white)
-    dark_palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
-    dark_palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
-    dark_palette.setColor(QtGui.QPalette.Button, QtGui.QColor(53, 53, 53))
-    dark_palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
-    dark_palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
-    dark_palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
-    dark_palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
-    dark_palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
-    app.setPalette(dark_palette)
-
+    # Применяем тёмную палитру по умолчанию, но она будет перезаписана текущей темой
     window = MainApplication()
     window.show()
     sys.exit(app.exec())
