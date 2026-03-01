@@ -3,6 +3,7 @@ from pathlib import Path
 
 APP_DIR = Path.home() / ".codecast"
 THEMES_DIR = APP_DIR / "themes"
+CONFIG_FILE = APP_DIR / "config.json"
 EXTENSIONS_DIR = APP_DIR / "extensions"
 
 # Базовая тема "Dark" (расширенная, с UI цветами)

@@ -5,6 +5,7 @@ from .file_tree import FileTreeDock
 from .find_replace_dialog import FindReplaceDialog
 from .tab_widget import TabWidget
 from .theme_dialog import ThemeDialog
+from .extensions_dialog import ExtensionsDialog
 
 __all__ = [
     "CodeFoldingArea",
@@ -14,4 +15,5 @@ __all__ = [
     "FindReplaceDialog",
     "TabWidget",
     "ThemeDialog",
+    "ExtensionsDialog",
 ]

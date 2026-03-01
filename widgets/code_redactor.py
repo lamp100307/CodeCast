@@ -92,11 +92,14 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
     def set_language_from_file(self, file_path):
         ext = os.path.splitext(file_path)[1].lower()
+        print(f"Setting language for file {file_path}, extension: {ext}")  # отладка
         highlighter_class = self.extension_manager.get_highlighter_for_file(file_path, self.theme_manager)
         if highlighter_class:
+            print(f"Found highlighter for {ext}, applying...")  # отладка
             self.highlighter = highlighter_class
             self.highlighter.setDocument(self.document())
         else:
+            print(f"No highlighter found for {ext}")  # отладка
             self.highlighter = None
 
     def is_foldable(self, block):

@@ -3,8 +3,8 @@ import json
 from pathlib import Path
 from PySide6 import QtWidgets, QtCore, QtGui
 
-from widgets import TabWidget, CodeEditor, CodeFoldingArea, LineNumberArea, FileTreeDock, FindReplaceDialog, ThemeDialog
-from utils import ThemeManager, ExtensionManager
+from widgets import TabWidget, CodeEditor, CodeFoldingArea, LineNumberArea, FileTreeDock, FindReplaceDialog, ThemeDialog, ExtensionsDialog
+from utils import ThemeManager, ExtensionManager, ConfigManager, FileSystemWatcher
 
 class MainApplication(QtWidgets.QMainWindow):
     def __init__(self):
@@ -13,9 +13,15 @@ class MainApplication(QtWidgets.QMainWindow):
         self.setWindowTitle("CodeCast Editor")
         self.setGeometry(100, 100, 1200, 800)
 
-        # Initialize managers
-        self.theme_manager = ThemeManager()
-        self.extension_manager = ExtensionManager()
+        # Initialize config manager first
+        self.config = ConfigManager()
+
+        # Initialize managers with config
+        self.theme_manager = ThemeManager(self.config)
+        self.extension_manager = ExtensionManager(self.config)
+
+        # Setup file system watcher
+        self.setup_watcher()
 
         # Tab widget
         self.tab_widget = TabWidget(self.theme_manager, self.extension_manager, self)
@@ -27,7 +33,10 @@ class MainApplication(QtWidgets.QMainWindow):
         # File tree dock
         self.file_tree_dock = FileTreeDock(self)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.file_tree_dock)
-        self.file_tree_dock.show()
+        if self.config.get("file_tree_visible", True):
+            self.file_tree_dock.show()
+        else:
+            self.file_tree_dock.hide()
 
         # Menus
         self.create_menus()
@@ -43,8 +52,9 @@ class MainApplication(QtWidgets.QMainWindow):
         self.status_bar.addPermanentWidget(self.lines_label)
 
         # Autosave timer
+        interval = self.config.get("auto_save_interval", 30) * 1000
         self.auto_save_timer = QtCore.QTimer()
-        self.auto_save_timer.setInterval(30000)
+        self.auto_save_timer.setInterval(interval)
         self.auto_save_timer.timeout.connect(self.auto_save_all)
         self.auto_save_timer.start()
 
@@ -53,6 +63,64 @@ class MainApplication(QtWidgets.QMainWindow):
 
         # Apply initial theme to whole app
         self.theme_manager.apply_theme_to_app(QtWidgets.QApplication.instance())
+
+        # Connect theme signals
+        self.theme_manager.theme_changed.connect(self.on_theme_changed)
+
+        # Connect extension signals
+        self.extension_manager.extension_enabled_changed.connect(self.on_extension_enabled_changed)
+
+    def setup_watcher(self):
+        """Настраивает FileSystemWatcher для отслеживания изменений"""
+        from config import THEMES_DIR, EXTENSIONS_DIR
+        self.watcher = FileSystemWatcher(THEMES_DIR, EXTENSIONS_DIR, self)
+        
+        # Подключаем сигналы watcher'а
+        self.watcher.themes_changed.connect(self.on_themes_changed)
+        self.watcher.extensions_changed.connect(self.on_extensions_changed)
+
+    def on_themes_changed(self):
+        """Обработчик изменения тем"""
+        print("Themes directory changed, reloading...")
+        self.theme_manager.load_themes()
+        
+        # Если текущая тема изменилась или была удалена, применяем новую
+        current_name = self.theme_manager.current_theme.get("name") if self.theme_manager.current_theme else None
+        if current_name not in self.theme_manager.get_theme_names():
+            # Текущая тема была удалена, выбираем первую доступную
+            first_theme = self.theme_manager.get_theme_names()[0]
+            self.theme_manager.set_theme(first_theme)
+            self.on_theme_changed(first_theme)
+
+    def on_extensions_changed(self):
+        """Обработчик изменения расширений"""
+        print("Extensions directory changed, reloading...")
+        self.extension_manager.reload_extensions()
+        
+        # Обновляем все открытые редакторы
+        for i in range(self.tab_widget.count()):
+            editor = self.tab_widget.widget(i)
+            if editor.file_path:
+                editor.set_language_from_file(editor.file_path)
+
+    def on_theme_changed(self, theme_name):
+        """Обработчик смены темы"""
+        print(f"Theme changed to: {theme_name}")
+        # Применяем тему ко всем открытым редакторам
+        for i in range(self.tab_widget.count()):
+            editor = self.tab_widget.widget(i)
+            editor.apply_theme()
+        # Обновляем UI
+        self.update()
+
+    def on_extension_enabled_changed(self, ext_name, enabled):
+        """Обработчик изменения статуса расширения"""
+        print(f"Extension {ext_name} {'enabled' if enabled else 'disabled'}")
+        # Обновляем все открытые редакторы
+        for i in range(self.tab_widget.count()):
+            editor = self.tab_widget.widget(i)
+            if editor.file_path:
+                editor.set_language_from_file(editor.file_path)
 
     def get_current_editor(self):
         return self.tab_widget.currentWidget()
@@ -248,6 +316,13 @@ class MainApplication(QtWidgets.QMainWindow):
         choose_theme_action.triggered.connect(self.show_theme_dialog)
         themes_menu.addAction(choose_theme_action)
 
+        # Tools menu
+        tools_menu = menubar.addMenu("Tools")
+        
+        extensions_action = QtGui.QAction("Extensions Manager", self)
+        extensions_action.triggered.connect(self.show_extensions_dialog)
+        tools_menu.addAction(extensions_action)
+
     def new_file(self):
         self.tab_widget.new_tab()
 
@@ -375,14 +450,14 @@ class MainApplication(QtWidgets.QMainWindow):
         if dialog.exec() == QtWidgets.QDialog.Accepted:
             theme_name = dialog.get_selected_theme()
             if theme_name and self.theme_manager.set_theme(theme_name):
-                # Apply theme to whole app
-                self.theme_manager.apply_theme_to_app(QtWidgets.QApplication.instance())
-                # Apply theme to all editors
-                for i in range(self.tab_widget.count()):
-                    editor = self.tab_widget.widget(i)
-                    editor.apply_theme()
-                # Force repaint of all widgets
-                self.update()
+                # Сигнал theme_chained уже будет обработан
+                pass
+
+    def show_extensions_dialog(self):
+        dialog = ExtensionsDialog(self.extension_manager, self)
+        if dialog.exec() == QtWidgets.QDialog.Accepted:
+            # Ничего не делаем, изменения уже применились через сигналы
+            pass
 
     def run_code(self):
         editor = self.get_current_editor()

@@ -1,22 +1,35 @@
-from PySide6 import QtGui
-from config import APP_DIR, THEMES_DIR, BASE_THEMES
+from PySide6 import QtGui, QtCore
+from config import THEMES_DIR, BASE_THEMES
 import json
 
-class ThemeManager:
-    def __init__(self):
+class ThemeManager(QtCore.QObject):
+    """Менеджер тем с поддержкой сигналов об изменениях"""
+    
+    theme_changed = QtCore.Signal(str)  # имя новой темы
+    themes_updated = QtCore.Signal()    # список тем обновлён
+    
+    def __init__(self, config_manager):
+        super().__init__()
+        self.config = config_manager
         self.themes = {}
         self.current_theme = None
         self.load_themes()
 
     def load_themes(self):
+        """Загружает все темы из папки"""
         THEMES_DIR.mkdir(parents=True, exist_ok=True)
+        
         # Создаём базовые темы, если их нет
         for name, data in BASE_THEMES.items():
             theme_path = THEMES_DIR / name
             if not theme_path.exists():
                 with open(theme_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=4)
+
         # Загружаем все темы из папки
+        old_themes = set(self.themes.keys())
+        self.themes.clear()
+        
         for theme_file in THEMES_DIR.glob("*.json"):
             try:
                 with open(theme_file, 'r', encoding='utf-8') as f:
@@ -25,29 +38,49 @@ class ThemeManager:
                     self.themes[theme_name] = data
             except Exception as e:
                 print(f"Error loading theme {theme_file}: {e}")
-        # Устанавливаем тему по умолчанию
-        if "Dark" in self.themes:
-            self.current_theme = self.themes["Dark"]
+        
+        # Проверяем, изменился ли список тем
+        new_themes = set(self.themes.keys())
+        if old_themes != new_themes:
+            self.themes_updated.emit()
+
+        # Устанавливаем тему из конфига
+        saved_theme = self.config.get("theme", "Dark")
+        if saved_theme in self.themes:
+            self.set_theme(saved_theme, save_to_config=False)
         elif self.themes:
-            self.current_theme = list(self.themes.values())[0]
+            first_theme = list(self.themes.keys())[0]
+            self.set_theme(first_theme, save_to_config=False)
 
     def get_color(self, key, default="#000000"):
+        """Возвращает цвет из текущей темы"""
         if self.current_theme and "colors" in self.current_theme:
             return self.current_theme["colors"].get(key, default)
         return default
 
     def get_ui_color(self, key, default="#000000"):
+        """Возвращает UI цвет из текущей темы"""
         if self.current_theme and "ui" in self.current_theme:
             return self.current_theme["ui"].get(key, default)
         return default
 
-    def set_theme(self, theme_name):
+    def set_theme(self, theme_name, save_to_config=True):
+        """Устанавливает тему по имени"""
         if theme_name in self.themes:
+            old_theme = self.current_theme.get("name") if self.current_theme else None
             self.current_theme = self.themes[theme_name]
+            
+            if save_to_config:
+                self.config.set("theme", theme_name)
+            
+            # Если тема действительно изменилась, испускаем сигнал
+            if old_theme != theme_name:
+                self.theme_changed.emit(theme_name)
             return True
         return False
 
     def get_theme_names(self):
+        """Возвращает список доступных тем"""
         return list(self.themes.keys())
 
     def apply_theme_to_app(self, app):
