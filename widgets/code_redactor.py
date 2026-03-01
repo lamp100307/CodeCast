@@ -15,7 +15,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         self.setTabStopDistance(QtGui.QFontMetricsF(self.font()).horizontalAdvance(' ') * 4)
 
         # Folding
-        self.folded_blocks = set()
+        self.folded_blocks = set()  # номера свёрнутых блоков
+        self.folding_indents = {}   # отступы для свёрнутых блоков
 
         # Side widgets
         self.line_number_area = LineNumberArea(self)
@@ -103,54 +104,96 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             self.highlighter = None
 
     def is_foldable(self, block):
+        """Проверяет, можно ли свернуть блок"""
         text = block.text().strip()
-        # Простая эвристика для Python и C-подобных
-        if text.endswith(':') and not text.startswith(('"""', "'''")):
+        
+        # Python: блоки, заканчивающиеся на :
+        if text.endswith(':') and not text.startswith(('"""', "'''", '#')):
             return True
-        if text.endswith('{'):
+        
+        # C/C++/C#: блоки, начинающиеся с { или заканчивающиеся на {
+        if text.endswith('{') or text.startswith('{'):
             return True
-        if text.startswith(('#if', '#ifdef', '#ifndef')):
+            
+        # Препроцессорные директивы
+        if text.startswith(('#if', '#ifdef', '#ifndef', '#region')):
             return True
+            
         return False
+
+    def get_fold_region(self, block):
+        """Возвращает диапазон строк для сворачивания"""
+        start_block = block
+        start_indent = len(block.text()) - len(block.text().lstrip())
+        
+        # Для Python: ищем конец блока по отступу
+        if block.text().strip().endswith(':'):
+            block = block.next()
+            while block.isValid():
+                text = block.text()
+                if not text.strip():  # пустая строка
+                    block = block.next()
+                    continue
+                current_indent = len(text) - len(text.lstrip())
+                if current_indent <= start_indent:
+                    break
+                block = block.next()
+            return start_block, block.previous()
+        
+        # Для C-подобных: ищем соответствующую закрывающую скобку
+        elif '{' in block.text():
+            brace_count = 1
+            block = block.next()
+            while block.isValid() and brace_count > 0:
+                text = block.text()
+                brace_count += text.count('{')
+                brace_count -= text.count('}')
+                if brace_count == 0:
+                    return start_block, block
+                block = block.next()
+        
+        return start_block, None
 
     def is_folded(self, block):
         return block.blockNumber() in self.folded_blocks
 
     def toggle_fold(self, block):
+        """Сворачивает/разворачивает блок"""
         block_number = block.blockNumber()
+        
         if block_number in self.folded_blocks:
+            # Разворачиваем
             self.folded_blocks.remove(block_number)
-            self.show_block(block.next())
+            self.show_fold_region(block)
         else:
-            self.folded_blocks.add(block_number)
-            self.hide_block(block.next())
+            # Сворачиваем
+            start, end = self.get_fold_region(block)
+            if end and end.isValid():
+                self.folded_blocks.add(block_number)
+                self.hide_fold_region(start, end)
+        
+        # Принудительно обновляем
         self.folding_area.update()
         self.line_number_area.update()
+        self.viewport().update()
 
-    def hide_block(self, block):
-        if not block.isValid():
+    def hide_fold_region(self, start_block, end_block):
+        """Скрывает область между start_block и end_block"""
+        if not start_block.isValid() or not end_block.isValid():
             return
-        original_text = block.text()
-        indent_level = len(original_text) - len(original_text.lstrip())
-        while block.isValid():
-            next_block = block.next()
-            if not next_block.isValid():
-                break
-            next_text = next_block.text()
-            next_indent = len(next_text) - len(next_text.lstrip())
-            if next_indent <= indent_level:
-                break
-            next_block.setVisible(False)
-            block = next_block
+        
+        block = start_block.next()
+        while block.isValid() and block.blockNumber() <= end_block.blockNumber():
+            block.setVisible(False)
+            # Сохраняем оригинальный отступ для восстановления
+            if block.blockNumber() not in self.folding_indents:
+                indent = len(block.text()) - len(block.text().lstrip())
+                self.folding_indents[block.blockNumber()] = indent
+            block = block.next()
 
-    def show_block(self, block):
-        if not block.isValid():
-            return
-        parent_block = block.previous()
-        while parent_block.isValid():
-            if parent_block.blockNumber() in self.folded_blocks:
-                return
-            parent_block = parent_block.previous()
+    def show_fold_region(self, start_block):
+        """Показывает область, начиная с блока после start_block"""
+        block = start_block.next()
         while block.isValid() and not block.isVisible():
             block.setVisible(True)
             block = block.next()
@@ -256,10 +299,12 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def line_number_area_paint_event(self, event):
         painter = QtGui.QPainter(self.line_number_area)
         painter.fillRect(event.rect(), QtGui.QColor(self.theme_manager.get_color("background", "#1e1e1e")))
+        
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
         top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
         bottom = top + self.blockBoundingRect(block).height()
+        
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 number = str(block_number + 1)
@@ -267,9 +312,11 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 painter.setFont(self.font())
                 painter.drawText(0, int(top), self.line_number_area.width() - 2,
                                  self.fontMetrics().height(), QtCore.Qt.AlignRight, number)
+            
             block = block.next()
-            top = bottom
-            bottom = top + self.blockBoundingRect(block).height()
+            if block.isValid():
+                top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
+                bottom = top + self.blockBoundingRect(block).height()
             block_number += 1
 
     def highlight_current_line(self):
